@@ -21,6 +21,7 @@ class position_finder(object):
 		self. cube_index = []
 		self.bucket_index = None
 		self.number_of_cubes = 0
+		self.number_of_elements = 0
 		self.cube_pos = geometry_msgs.msg.PoseStamped()
 		self.bucket_pos = geometry_msgs.msg.PoseStamped()
 
@@ -64,7 +65,8 @@ class position_finder(object):
 
 	def find_stuff(self, group, robot, display_trajectory_publisher): # method to loop over every cube
 
-	    for i in range(0,number_of_cubes):
+	    for i in range(0,self.number_of_cubes):
+	    	print "============ CUBE <- #", i
 
 	        ## Planning to a Pose goal - Go grab a cube
 	        print "============ Generating plan 1"
@@ -79,7 +81,7 @@ class position_finder(object):
 	        self.pose_goal_1 = group.get_current_pose().pose
 	        self.pose_goal_1.orientation = self.cube_pos.pose.orientation
 	        self.pose_goal_1.position = self.cube_pos.pose.position
-	        print '#', i, 'cube -> pose goal:', self.pose_goal_1
+	        print 'Cube -> pose goal:', self.pose_goal_1
 	        group.set_pose_target(self.pose_goal_1)
 
 	        ## Now, we call the planner to compute the plan and visualize it if successful Note that we are just planning, not asking move_group to actually move the robot
@@ -125,17 +127,18 @@ class position_finder(object):
 	    #print ms.name
 	    #print "Message: " , ms.pose <- 9 elements[pos, orientation0, ... , orientation8]
 	    index = 0
-	    for str in ms.name:
-	        if(str.find('cube')>=0):
-	            self.cube_index.append(index)
-	            #print 'Cube', index-2, 'pose:\n', ms.pose[index]
-	            self.cube_pos.pose = ms.pose[index]
-	            self.number_of_cubes+=1 # increase cube counter
-	        if(str.find('bucket')>=0):
-	            self.bucket_index = index
-	            #print 'Bucket pose:\n', ms.pose[index]
-	            self.bucket_pos.pose = ms.pose[index]
-	        index+=1
+	    if len(ms.name) > self.number_of_elements: # check if new elements have been added and if so, find their position again
+		    for str in ms.name:
+		    	self.number_of_elements+=1 # counter for all the elements in the virtual environment
+		        if(str.find('cube')>=0):
+		            self.cube_index.append(index)
+		            self.cube_pos.pose = ms.pose[index]
+		            self.number_of_cubes+=1 # increase cube counter
+		        if(str.find('bucket')>=0):
+		            self.bucket_index = index
+		            self.bucket_pos.pose = ms.pose[index]
+		        index+=1
+
 	    #print cube_index
 	    #print bucket_index
 
