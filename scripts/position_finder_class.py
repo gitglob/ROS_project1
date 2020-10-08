@@ -3,21 +3,16 @@ import roslib
 roslib.load_manifest('project1')
  
 import sys
-#import copy
 import rospy
-import numpy as np
 import moveit_commander
 import moveit_msgs.msg
 import geometry_msgs.msg
-import shape_msgs.msg as shape_msgs
 from gazebo_msgs.msg import ModelStates
-from std_msgs.msg import String
-import tf_conversions
-import math
 
-class position_finder(object):
+class position_finder():
 
 	def __init__(self):
+		# "global" parameters
 		self. cube_index = []
 		self.bucket_index = None
 		self.number_of_cubes = 0
@@ -43,85 +38,78 @@ class position_finder(object):
 	    print "============ Waiting for RVIZ..."
 	    rospy.sleep(2)
 
-	    ## We can get the name of the reference frame for this robot
 	    print "============ Reference frame: %s" % self.group.get_planning_frame()
-	    ## We can also print the name of the end-effector link for this group
 	    print "============ Reference frame: %s" % self.group.get_end_effector_link()
-	    ## We can get a list of all the groups in the robot
 	    print "============ Robot Groups:"
 	    print self.robot.get_group_names()
 
-	    ## Sometimes for debugging it is useful to print the entire state of the robot.
 	    print "============ Printing robot state"
 	    print self.robot.get_current_state()
 	    print "============"
 
-	    self.scene = moveit_commander.PlanningSceneInterface()
-	    self.robot = moveit_commander.RobotCommander()
-
 	    rospy.sleep(2)
 
-	    self.find_stuff(self.group, self.robot, display_trajectory_publisher)
+	    for i in range(0,self.number_of_cubes):
+	    	self.find_stuff(self.group, self.robot, display_trajectory_publisher)
+
+	    	R = rospy.Rate(10)
+	    	while not rospy.is_shutdown():
+	    		R.sleep()
+
+		moveit_commander.roscpp_shutdown()
 
 	def find_stuff(self, group, robot, display_trajectory_publisher): # method to loop over every cube
 
-	    for i in range(0,self.number_of_cubes):
-	    	print "============ CUBE <- #", i
+    	print "============ CUBE <- #", i
+    	
+        ## Planning a Pose goal - Go grab a cube
+        print "============ Generating plan 1, aka: Grab it by the cuby."
 
-	        ## Planning to a Pose goal - Go grab a cube
-	        print "============ Generating plan 1"
+        ## Let's setup the planner
+        group.set_planning_time(1.0)
+        group.set_goal_orientation_tolerance(1)
+        group.set_goal_tolerance(1)
+        group.set_goal_joint_tolerance(0.1)
+        group.set_num_planning_attempts(10)
 
-	        ## Let's setup the planner
-	        group.set_planning_time(1.0)
-	        group.set_goal_orientation_tolerance(1)
-	        group.set_goal_tolerance(1)
-	        group.set_goal_joint_tolerance(0.1)
-	        group.set_num_planning_attempts(10)
+        # Set up the goal coordinates
+        self.pose_goal_1 = group.get_current_pose().pose
+        self.pose_goal_1.orientation = self.cube_pos.pose.orientation
+        self.pose_goal_1.position = self.cube_pos.pose.position
+        print 'Cube -> pose goal:', self.pose_goal_1
+        group.set_pose_target(self.pose_goal_1)
 
-	        self.pose_goal_1 = group.get_current_pose().pose
-	        self.pose_goal_1.orientation = self.cube_pos.pose.orientation
-	        self.pose_goal_1.position = self.cube_pos.pose.position
-	        print 'Cube -> pose goal:', self.pose_goal_1
-	        group.set_pose_target(self.pose_goal_1)
+        ## Now, we call the planner to compute the plan and visualize it if successful Note that we are just planning, not asking move_group to actually move the robot
+        self.plan_1 = group.plan()
+        rospy.sleep(0.5)
 
-	        ## Now, we call the planner to compute the plan and visualize it if successful Note that we are just planning, not asking move_group to actually move the robot
-	        #group.set_goal_position_tolerance(1.5)
-	        self.plan_1 = group.plan()
-	        rospy.sleep(0.5)
-	        ## You can ask RVIZ to visualize a plan (aka trajectory) for you.  But the group.plan() method does this automatically so this is not that useful here (it just displays the same trajectory again).
-	        self.display_trajectory_1 = moveit_msgs.msg.DisplayTrajectory()
-	        self.display_trajectory_1.trajectory_start = robot.get_current_state()
-	        self.display_trajectory_1.trajectory.append(self.plan_1)
-	        display_trajectory_publisher.publish(self.display_trajectory_1);
+        ## You can ask RVIZ to visualize a plan (aka trajectory) for you.  But the group.plan() method does this automatically so this is not that useful here (it just displays the same trajectory again).
+        self.display_trajectory_1 = moveit_msgs.msg.DisplayTrajectory()
+        self.display_trajectory_1.trajectory_start = robot.get_current_state()
+        self.display_trajectory_1.trajectory.append(self.plan_1)
+        display_trajectory_publisher.publish(self.display_trajectory_1)
 
-	        rospy.sleep(0.5)
-	        group.go(wait=True)
+        rospy.sleep(5.)
+        group.go(wait=True)
 
-	        ## second movement - Go to the bucket and leave the item
-	        ## ^^^^^^^^^^^^^^^^^^^^^
-	        print "============ Generating plan 2"
-	        self.pose_goal_2 = group.get_current_pose().pose
-	        self.pose_goal_2.orientation = self.bucket_pos.pose.orientation
-	        self.pose_goal_2.position = self.bucket_pos.pose.position
-	        print 'Bucket -> pose goal:', self.pose_goal_2
-	        group.set_pose_target(self.pose_goal_2)
+        ## second movement - Go to the bucket and leave the item
+        ## ^^^^^^^^^^^^^^^^^^^^^
+        print "============ Generating plan 2"
+        self.pose_goal_2 = group.get_current_pose().pose
+        self.pose_goal_2.orientation = self.bucket_pos.pose.orientation
+        self.pose_goal_2.position = self.bucket_pos.pose.position
+        print 'Bucket -> pose goal:', self.pose_goal_2
+        group.set_pose_target(self.pose_goal_2)
 
-	        self.plan_2 = group.plan()
-	        rospy.sleep(0.5)
-	        self.display_trajectory_2 = moveit_msgs.msg.DisplayTrajectory()
-	        self.display_trajectory_2.trajectory_start = robot.get_current_state()
-	        self.display_trajectory_2.trajectory.append(self.plan_2)
-	        display_trajectory_publisher.publish(self.display_trajectory_2);
+        self.plan_2 = group.plan()
+        rospy.sleep(0.5)
+        self.display_trajectory_2 = moveit_msgs.msg.DisplayTrajectory()
+        self.display_trajectory_2.trajectory_start = robot.get_current_state()
+        self.display_trajectory_2.trajectory.append(self.plan_2)
+        display_trajectory_publisher.publish(self.display_trajectory_2)
 
-	        rospy.sleep(0.5)
-	        group.go(wait=True)
-
-	    ## When finished shut down moveit_commander.
-	    moveit_commander.roscpp_shutdown()
-
-	    R = rospy.Rate(10)
-	    while not rospy.is_shutdown():
-	        R.sleep()
+        rospy.sleep(5.)
+        group.go(wait=True)
 
 	def callback(self, ms): # callback function for 'pose' messages
 	    #print ms.name
@@ -148,8 +136,9 @@ def main(args):
     c = position_finder()
     try:
         rospy.spin()
-    except KeyboardInterrupt:
+    except rospy.ROSInterruptException:
         print "Shutting down ROS Position Finder module"
+    	pass
     cv2.destroyAllWindows()
 
 if __name__ == '__main__':

@@ -4,6 +4,7 @@ import rospy, tf, random
 import tf_conversions
 from gazebo_msgs.srv import DeleteModel, SpawnModel
 from geometry_msgs.msg import *
+import rospkg
 
 if __name__ == '__main__':
     print("Waiting for gazebo services...")
@@ -13,8 +14,9 @@ if __name__ == '__main__':
     print("Got it.")
     delete_model = rospy.ServiceProxy("gazebo/delete_model", DeleteModel)
     spawn_model = rospy.ServiceProxy("gazebo/spawn_sdf_model", SpawnModel)
-
-    with open("/home/glob/catkin_ws/src/project1/urdf/cube.urdf", "r") as f:
+    rospack = rospkg.RosPack()
+    path = rospack.get_path('project1')
+    with open(path + "/urdf/cube.urdf", "r") as f:
         product_xml = f.read()
 
     orient = Quaternion(*tf_conversions.transformations.quaternion_from_euler(0., 0.0, 0.785398))
@@ -29,7 +31,7 @@ if __name__ == '__main__':
         item_pose   =   Pose(Point(x=bin_x, y=bin_y,    z=1),   orient)
         spawn_model(item_name, product_xml, "", item_pose, "world")
 
-    with open("/home/glob/catkin_ws/src/project1/urdf/bucket.urdf", "r") as f:
+    with open(path + "/urdf/bucket.urdf", "r") as f:
         product_xml = f.read()
 
     item_pose   =   Pose(Point(x=0.53, y=-0.23,    z=0.78),   orient)

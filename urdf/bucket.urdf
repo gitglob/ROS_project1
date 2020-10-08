@@ -19,13 +19,13 @@
 
         <visual name="visual">
           <geometry>
-            <mesh><uri>file:///home/glob/catkin_ws/src/project1/urdf/bucket.dae</uri></mesh>
+            <mesh><uri>model://bucket.dae</uri></mesh>
           </geometry>
         </visual>
 
         <collision name="collision">
           <geometry>
-            <mesh><uri>file:///home/glob/catkin_ws/src/project1/urdf/bucket.dae</uri></mesh>
+            <mesh><uri>model://bucket.dae</uri></mesh>
           </geometry>
         </collision>
       </link>
