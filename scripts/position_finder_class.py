@@ -50,90 +50,88 @@ class position_finder():
 		print self.robot.get_current_state()
 		print "============"
 
+		# iterate over every cube # THIS PROBABLY NEEDS TO GO IN THE CALLBACK FUNCTION BUT LEAVE IT FOR LATER
 		for i in range(0,self.number_of_cubes):
-			print "============ CUBE <- #", i # go to a cube
+			print "============ CUBE <- #", i
 			self.findStuff(i, self.group, self.robot)
 
 	def findStuff(self, i, group, robot): # method to loop over every cube
 		## Let's setup the planner
 		#group.set_planning_time(1.0)
-		group.set_goal_orientation_tolerance(0.01)
-		group.set_goal_tolerance(0.01)
-		group.set_goal_joint_tolerance(0.01)
+		group.set_goal_orientation_tolerance(0.05)
+		group.set_goal_tolerance(0.05)
+		group.set_goal_joint_tolerance(0.05)
 		group.set_num_planning_attempts(100)
 
 		# reset the arm now
 		self.resetArm(group, robot) # first of all, reset the arm
-		if i==0: # the first time we need to open the gripper from the start
-			self.openGripper()
+		#if i==0: # the first time we need to open the gripper from the start
+		#	self.openGripper()
 
 		print "============ Generating plan 1, aka: Grab it by the cuby."
 		pose_goal_1 = group.get_current_pose().pose
-		waypoints_1 = []
-
-		waypoints_1.append(pose_goal_1)
-		pose_goal_1.position = self.cube_pos.pose.position
-
 		print 'Cube -> pose goal:', pose_goal_1
-		waypoints_1.append(pose_goal_1)
+		
+		waypoints_1 = []
+		waypoints_1.append(pose_goal_1) # current pose
+		pose_goal_1.position = self.cube_pos.pose.position
+		waypoints_1.append(pose_goal_1) # goal pose
 
-		# create cartesian plan
+		# create cartesian plan based on current and goal pose
 		(plan_1, fraction_1) = group.compute_cartesian_path(waypoints_1, 0.01, 0.0)
 		## Now, we call the planner to compute the plan and visualize it if successful Note that we are just planning, not asking move_group to actually move the robot
-		rospy.sleep(2)
+		rospy.sleep(0.5)
 
 		## You can ask RVIZ to visualize a plan (aka trajectory) for you.  But the group.plan() method does this automatically so this is not that useful here (it just displays the same trajectory again).
 		display_trajectory_1 = moveit_msgs.msg.DisplayTrajectory()
 		display_trajectory_1.trajectory_start = robot.get_current_state()
 		display_trajectory_1.trajectory.append(plan_1)
 		self.display_trajectory_publisher.publish(display_trajectory_1)
-		rospy.sleep(2)
+		rospy.sleep(0.5)
 
+		print "==== Executing plan 1."
 		group.execute(plan_1,wait=True)
-		rospy.sleep(2)
+		rospy.sleep(0.5)
 
 		# reset the arm again
 		self.resetArm(group, robot)
 
 		print "============ Generating plan 2" # go to the bucket
 		pose_goal_2 = group.get_current_pose().pose
-		waypoints_2 = []
-
-		waypoints_2.append(pose_goal_2) # waypoints_1 ?
-		pose_goal_2.position = self.bucket_pos.pose.position
-		
 		print 'Bucket -> pose goal:', pose_goal_2
-		waypoints_2.append(copy.deepcopy(pose_goal_2))
 
-		# create cartesian plan
+		waypoints_2 = []
+		waypoints_2.append(pose_goal_2) # current pose
+		pose_goal_2.position = self.bucket_pos.pose.position
+		waypoints_2.append(copy.deepcopy(pose_goal_2)) # goal pose
+
+		# create cartesian plan based on current and goal pose
 		(plan_2, fraction_2) = group.compute_cartesian_path(waypoints_2, 0.01, 0.0)
-		rospy.sleep(2)
+		rospy.sleep(0.5)
 
 		display_trajectory_2 = moveit_msgs.msg.DisplayTrajectory()
 		display_trajectory_2.trajectory_start = robot.get_current_state()
 		display_trajectory_2.trajectory.append(plan_2)
 		self.display_trajectory_publisher.publish(display_trajectory_2)
-		rospy.sleep(2)
+		rospy.sleep(0.5)
 
+		print "==== Executing plan 2."
 		group.execute(plan_2,wait=True)
 		rospy.sleep(2)
 
 		# open the gripper to drop the cube
-		self.openGripper()
+		#self.openGripper()
 
 	def resetArm(self, group, robot):
-		print "============ Reseting the Arm" # go to the original position
+		print "============ Planning Reset" # go to the original position
 		pose_goal = group.get_current_pose().pose
-		waypoints = []
 
-		waypoints.append(pose_goal) # waypoints_1 ?
-		pose_goal.position = self.bucket_pos.pose.position
+		waypoints = []
+		waypoints.append(pose_goal) # current pose
 		pose_goal.position.x = 0.40
 		pose_goal.position.y = -0.10
 		pose_goal.position.z = 1.55
-		
-		print 'Bucket -> pose goal:', pose_goal
-		waypoints.append(pose_goal)
+		waypoints.append(pose_goal) # goal pose
 
 		# create cartesian plan
 		(plan, fraction) = group.compute_cartesian_path(waypoints, 0.01, 0.0)
@@ -145,6 +143,7 @@ class position_finder():
 		self.display_trajectory_publisher.publish(display_trajectory)
 		rospy.sleep(2)
 
+		print "==== Executing Reset."
 		group.execute(plan,wait=True)
 		rospy.sleep(2)
 
@@ -175,7 +174,6 @@ class position_finder():
 			rate.sleep()
 
 	def callback(self, ms): # callback function for 'pose' messages
-		#print ms.name
 		#print "Message: " , ms.pose <- 9 elements[pos, orientation0, ... , orientation8]
 		index = 0
 		if len(ms.name) > self.number_of_elements: # check if new elements have been added and if so, find their position again
@@ -190,17 +188,17 @@ class position_finder():
 					self.bucket_pos.pose = ms.pose[index]
 				index+=1
 
-		#print cube_index
-		#print bucket_index
-
 def main(args):
 	'''Initializes and cleanup ros node'''
 	rospy.init_node('stuff_finder', anonymous=True)
-	c = position_finder()
 	try:
+		c = position_finder()
+		## When finished shut down moveit_commander.
+		moveit_commander.roscpp_shutdown()
 		rospy.spin()
 	except rospy.ROSInterruptException:
 		pass
+
 if __name__ == '__main__':
 	main(sys.argv)
 	pass
