@@ -5,6 +5,7 @@ roslib.load_manifest('project1')
 import sys
 import copy
 import rospy
+import math
 import moveit_commander
 import moveit_msgs.msg
 import geometry_msgs.msg
@@ -58,9 +59,9 @@ class position_finder():
 	def findStuff(self, i, group, robot): # method to loop over every cube
 		## Let's setup the planner
 		#group.set_planning_time(1.0)
-		group.set_goal_orientation_tolerance(0.05)
-		group.set_goal_tolerance(0.05)
-		group.set_goal_joint_tolerance(0.05)
+		group.set_goal_orientation_tolerance(0.1)
+		group.set_goal_tolerance(0.01)
+		group.set_goal_joint_tolerance(0.01)
 		group.set_num_planning_attempts(100)
 
 		# reset the arm now
@@ -94,6 +95,7 @@ class position_finder():
 		rospy.sleep(0.5)
 
 		# reset the arm again
+		self.closeGripper()
 		self.resetArm(group, robot)
 
 		print "============ Generating plan 2" # go to the bucket
@@ -103,6 +105,7 @@ class position_finder():
 		waypoints_2 = []
 		waypoints_2.append(pose_goal_2) # current pose
 		pose_goal_2.position = self.bucket_pos.pose.position
+		pose_goal_2.position.z = 1.35
 		waypoints_2.append(copy.deepcopy(pose_goal_2)) # goal pose
 
 		# create cartesian plan based on current and goal pose
@@ -120,34 +123,56 @@ class position_finder():
 		rospy.sleep(2)
 
 		# open the gripper to drop the cube
-		#self.openGripper()
+		self.openGripper()
 
 	def resetArm(self, group, robot):
 		print "============ Planning Reset" # go to the original position
 		pose_goal = group.get_current_pose().pose
 
-		waypoints = []
-		waypoints.append(pose_goal) # current pose
-		pose_goal.position.x = 0.40
-		pose_goal.position.y = -0.10
-		pose_goal.position.z = 1.55
-		waypoints.append(pose_goal) # goal pose
+		pose_goal.orientation = geometry_msgs.msg.Quaternion(*tf_conversions.transformations.quaternion_from_euler(0., -math.pi/2, 0.))
+		pose_goal.position.x =0.40
+		pose_goal.position.y =-0.10
+		pose_goal.position.z =1.35
+		group.set_pose_target(pose_goal)
 
-		# create cartesian plan
-		(plan, fraction) = group.compute_cartesian_path(waypoints, 0.01, 0.0)
+		plan = group.plan()
 		rospy.sleep(2)
 
 		display_trajectory = moveit_msgs.msg.DisplayTrajectory()
 		display_trajectory.trajectory_start = robot.get_current_state()
 		display_trajectory.trajectory.append(plan)
-		self.display_trajectory_publisher.publish(display_trajectory)
+		self.display_trajectory_publisher.publish(display_trajectory);
+		rospy.sleep(2.)
+
+		group.go(wait=True)
 		rospy.sleep(2)
 
-		print "==== Executing Reset."
-		group.execute(plan,wait=True)
-		rospy.sleep(2)
+		if 0:
+			pose_goal = group.get_current_pose().pose
+
+			waypoints = []
+			waypoints.append(pose_goal) # current pose
+			pose_goal.position.x = 0.40
+			pose_goal.position.y = -0.10
+			pose_goal.position.z = 1.55
+			waypoints.append(pose_goal) # goal pose
+
+			# create cartesian plan
+			(plan, fraction) = group.compute_cartesian_path(waypoints, 0.01, 0.0)
+			rospy.sleep(2)
+
+			display_trajectory = moveit_msgs.msg.DisplayTrajectory()
+			display_trajectory.trajectory_start = robot.get_current_state()
+			display_trajectory.trajectory.append(plan)
+			self.display_trajectory_publisher.publish(display_trajectory)
+			rospy.sleep(2)
+
+			print "==== Executing Reset."
+			group.execute(plan,wait=True)
+			rospy.sleep(2)
 
 	def openGripper(self):
+		print "============ Opening Grip"
 		currentJointState = JointState()
 
 		currentJointState = rospy.wait_for_message("/joint_states",JointState)
@@ -161,6 +186,7 @@ class position_finder():
 			rate.sleep()
 
 	def closeGripper(self):
+		print "============ Closing Grip"
 		currentJointState = JointState()
 
 		currentJointState = rospy.wait_for_message("/joint_states",JointState)
