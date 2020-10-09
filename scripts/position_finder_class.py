@@ -25,7 +25,7 @@ class position_finder():
 		self.bucket_pos = geometry_msgs.msg.PoseStamped()
 
 		# topic msgs: [ground_plane, jaco_on_table, cube0, cube1, ... , bucket] [String, Pose, Twist] <= ModelStates
-		self.pose_subscriber = rospy.Subscriber("/gazebo/model_states", ModelStates, self.callback) # initialize subscriver
+		self.pose_subscriber = rospy.Subscriber("/gazebo/model_states", ModelStates, self.callback) # initialize pose subscriver
 		self.display_trajectory_publisher = rospy.Publisher('/move_group/display_planned_path', moveit_msgs.msg.DisplayTrajectory) # initialize trajectory publisher
 		self.joint_publisher = rospy.Publisher("/jaco/joint_control", JointState, queue_size=1) # initialize joint state publisher for gripper
 
@@ -59,15 +59,15 @@ class position_finder():
 	def findStuff(self, i, group, robot): # method to loop over every cube
 		## Let's setup the planner
 		#group.set_planning_time(1.0)
-		group.set_goal_orientation_tolerance(0.1)
-		group.set_goal_tolerance(0.01)
+		group.set_goal_orientation_tolerance(0.01)
+		group.set_goal_tolerance(0.001)
 		group.set_goal_joint_tolerance(0.01)
 		group.set_num_planning_attempts(100)
 
 		# reset the arm now
 		self.resetArm(group, robot) # first of all, reset the arm
-		#if i==0: # the first time we need to open the gripper from the start
-		#	self.openGripper()
+		if i==0: # the first time we need to open the gripper from the start
+			self.openGripper()
 
 		print "============ Generating plan 1, aka: Grab it by the cuby."
 		pose_goal_1 = group.get_current_pose().pose
@@ -136,18 +136,18 @@ class position_finder():
 		group.set_pose_target(pose_goal)
 
 		plan = group.plan()
-		rospy.sleep(2)
+		rospy.sleep(0.5)
 
 		display_trajectory = moveit_msgs.msg.DisplayTrajectory()
 		display_trajectory.trajectory_start = robot.get_current_state()
 		display_trajectory.trajectory.append(plan)
 		self.display_trajectory_publisher.publish(display_trajectory);
-		rospy.sleep(2.)
+		rospy.sleep(0.5)
 
 		group.go(wait=True)
-		rospy.sleep(2)
+		rospy.sleep(0.5)
 
-		if 0:
+		if 0: # I abandoned the cartesian command approach, it doesn't work
 			pose_goal = group.get_current_pose().pose
 
 			waypoints = []
@@ -165,7 +165,7 @@ class position_finder():
 			display_trajectory.trajectory_start = robot.get_current_state()
 			display_trajectory.trajectory.append(plan)
 			self.display_trajectory_publisher.publish(display_trajectory)
-			rospy.sleep(2)
+			rospy.sleep(0.5)
 
 			print "==== Executing Reset."
 			group.execute(plan,wait=True)
