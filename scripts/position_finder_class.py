@@ -34,7 +34,7 @@ class position_finder():
 		self.group = moveit_commander.MoveGroupCommander("Arm")
 
 		## Let's setup the planner
-		self.group.set_planning_time(2)
+		self.group.set_planning_time(5)
 		self.group.set_goal_orientation_tolerance(0.01)
 		self.group.set_goal_joint_tolerance(0.01)
 		self.group.set_num_planning_attempts(100)
@@ -56,16 +56,13 @@ class position_finder():
 		print "============ CUBE <- #", i
 
 		# start at a neutral configuration
-		print "### Neutral ###"
-		start_config = self.bucket_pos[0]
-		start_config.x = 0.4
-		start_config.y = -0.1
-		start_config.z = 1.35
-		self.SlowlyReach(start_config)
-
-		# open the gripper the first time
-		if i==0: 
-			self.openGripper()
+		#print "### Neutral ###"
+		#start_config = self.bucket_pos[0]
+		#start_config.x = 0.4
+		#start_config.y = -0.1
+		#start_config.z = 1.35
+		#self.SlowlyReach(start_config)
+		#self.openGripper
 
 		print "============ Generating plan 1, aka: \nGrab it by the cuby."
 		print "Next cube position:\n", self.cube_pos[i]
@@ -76,6 +73,9 @@ class position_finder():
 		temp = above_cube_config.z
 		above_cube_config.z = 1.35
 		self.SlowlyReach(above_cube_config)
+
+		# open the gripper
+		self.openGripper()
 
 		# go down and reach the cube
 		print "### Reach Cube ###"
@@ -103,14 +103,14 @@ class position_finder():
 		self.openGripper()
 
 	def SlowlyReach(self, config):
-		tol_list = [0.1, 0.05, 0.02, 0.01, 0.005]
+		tol_list = [0.1, 0.05, 0.02, 0.01, 0.005, 0.002]
 		for tolerance in tol_list:
 			print 'Tolerance = ', tolerance
 			self.group.set_goal_tolerance(tolerance)
-			self.moveArm(config)
+			self.moveArmCartesian(config)
 
 	def moveArm(self, config):
-		print "- Planning Move..." # go to the original position
+		print "- Planning Move..."
 		pose_goal = self.group.get_current_pose().pose
 
 		pose_goal.orientation = geometry_msgs.msg.Quaternion(*tf_conversions.transformations.quaternion_from_euler(0., -math.pi/2, 0.))
@@ -136,12 +136,12 @@ class position_finder():
 		waypoints = []
 		pose_goal = self.group.get_current_pose().pose
 		waypoints.append(pose_goal) # current pose
-		pose_goal.position.x = config[0]
-		pose_goal.position.y = config[1]
-		pose_goal.position.z = config[2]
+		pose_goal.position.x = config.x
+		pose_goal.position.y = config.y
+		pose_goal.position.z = config.z
 		waypoints.append(copy.deepcopy(pose_goal)) # goal pose
-		print 'Pose goal:\n', pose_goal.position
 
+		print "- Planning Move..."
 		# create cartesian plan based on current and goal pose
 		# compute_cartesian_path: Compute a sequence of waypoints that make the end-effector move in straight line segments that follow the poses specified as waypoints. 
 		# Configurations are computed for every eef_step meters; 
@@ -154,11 +154,11 @@ class position_finder():
 		display_trajectory.trajectory_start = self.robot.get_current_state()
 		display_trajectory.trajectory.append(plan)
 		self.display_trajectory_publisher.publish(display_trajectory)
-		rospy.sleep(2.)
+		rospy.sleep(1.)
 
-		print "==== Executing plan"
+		print "- Executing..."
 		self.group.execute(plan,wait=True)
-		rospy.sleep(4.)
+		rospy.sleep(2.)
 
 	def openGripper(self):
 		print "============ Opening Grip"
