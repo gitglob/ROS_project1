@@ -21,7 +21,7 @@ class position_finder():
 		self.bucket_index = None
 		self.number_of_elements = 0
 		self.cube_pos = []
-		self.bucket_pos = []
+		self.bucket_pos = None
 
 		# initialize robot, scene, group, Subscriber, Publishers
 		self.initialize_stuff()
@@ -34,10 +34,12 @@ class position_finder():
 		self.group = moveit_commander.MoveGroupCommander("Arm")
 
 		## Let's setup the planner
-		self.group.set_planning_time(5)
-		self.group.set_goal_orientation_tolerance(0.01)
-		self.group.set_goal_joint_tolerance(0.01)
-		self.group.set_num_planning_attempts(100)
+		#self.group.set_planning_time(1)
+		#self.group.set_goal_joint_tolerance(0.01)
+		#self.group.set_goal_orientation_tolerance(0.01)
+		#self.group.set_goal_position_tolerance(0.1)
+		#self.group.set_goal_tolerance(0.1)
+		self.group.set_num_planning_attempts(10)
 
 		# ModelStates: [ground_plane, jaco_on_table, cube0, cube1, ... , bucket] [String, Pose, Twist]
 		# DisplayTrajecory: too complex...
@@ -47,7 +49,6 @@ class position_finder():
 		self.pose_subscriber = rospy.Subscriber("/gazebo/model_states", ModelStates, self.callback) # initialize pose subscriber
 		rospy.sleep(1.)
 
-
 		print "====== Number of cubes: ", self.number_of_cubes
 		for i in range(self.number_of_cubes):
 			self.findStuff(i)
@@ -56,58 +57,99 @@ class position_finder():
 		print "============ CUBE <- #", i
 
 		# start at a neutral configuration
-		#print "### Neutral ###"
-		#start_config = self.bucket_pos[0]
-		#start_config.x = 0.4
-		#start_config.y = -0.1
-		#start_config.z = 1.35
-		#self.SlowlyReach(start_config)
-		#self.openGripper
+		print "### Neutral ###"
+		start_config = copy.deepcopy(self.bucket_pos) # for some weird reason, bucket_config doesn't take the value, but BECOMES self.bucket_pos
+		start_config.x = 0.578
+		start_config.y = -0.015
+		start_config.z = 1.295
+		min_precision = 1 # precision ranges from 0~4 : 4 is the highest
+		max_precision = 1
+		self.SlowlyReach(start_config, min_precision, max_precision)
 
 		print "============ Generating plan 1, aka: \nGrab it by the cuby."
 		print "Next cube position:\n", self.cube_pos[i]
 
 		# go above the cube
 		print "### Above Cube ###"
-		above_cube_config = self.cube_pos[i]
-		temp = above_cube_config.z
-		above_cube_config.z = 1.35
-		self.SlowlyReach(above_cube_config)
+		cube_config = copy.deepcopy(self.cube_pos[i])
+		cube_z = cube_config.z
+		cube_config.z = cube_z + 0.5
+		min_precision = 2
+		max_precision = 3
+		self.SlowlyReach(cube_config, min_precision, max_precision)
 
 		# open the gripper
 		self.openGripper()
 
+		# go a little lower
+		print "# A little lower #"
+		cube_config.z = cube_z + 0.4
+		min_precision = 3
+		max_precision = 4
+		self.SlowlyReach(cube_config, min_precision, max_precision)
+
+		# even lower
+		print "# Even lower #"
+		cube_config.z = cube_z + 0.205
+		min_precision = 4
+		max_precision = 4
+		self.SlowlyReach(cube_config, min_precision, max_precision)
+
 		# go down and reach the cube
 		print "### Reach Cube ###"
-		reach_cube_config = above_cube_config
-		reach_cube_config.z = temp+0.15
-		self.SlowlyReach(reach_cube_config)
+		cube_config.z = cube_z + 0.165 # cubes size are 0.05
+		min_precision = 4
+		max_precision = 4
+		self.SlowlyReach(cube_config, min_precision, max_precision)
 
 		# close grip to grab cube
 		self.closeGripper()
 
 		# go above the cube
 		print "### Pick Up Cube ###"
-		self.SlowlyReach(above_cube_config)
+
+		# go a little higher
+		print "# A little higher #"
+		cube_config.z = cube_z + 0.165
+		min_precision = 4
+		max_precision = 4
+		self.SlowlyReach(cube_config, min_precision, max_precision)
+
+		# go a little higher
+		print "# Even higher #"
+		cube_config.z = cube_z + 0.205
+		min_precision = 4
+		max_precision = 4
+		self.SlowlyReach(cube_config, min_precision, max_precision)
+
+		# go above the cube
+		print "### Above with Cube ###"
+		cube_config.z = cube_z + 0.5
+		min_precision = 4
+		max_precision = 4
+		self.SlowlyReach(cube_config, min_precision, max_precision)
 
 		print "============ Generating plan 2: \nReturn to the bucket"
-		print "Bucket position:\n", self.bucket_pos[0]
+		print "Bucket position:\n", self.bucket_pos
 
 		# go above the bucket
 		print "### Above bucket ###"
-		above_bucket_config = self.bucket_pos[0]
-		above_bucket_config.z = 1.35
-		self.SlowlyReach(above_bucket_config)
+		bucket_config = copy.deepcopy(self.bucket_pos)
+		bucket_config.z = bucket_config.z + 0.5
+		min_precision = 4
+		max_precision = 4
+		self.SlowlyReach(bucket_config, min_precision, max_precision)
 
 		# open the gripper to drop the cube
 		self.openGripper()
 
-	def SlowlyReach(self, config):
-		tol_list = [0.1, 0.05, 0.02, 0.01, 0.005, 0.002]
-		for tolerance in tol_list:
+	def SlowlyReach(self, config, min_precision, max_precision):
+		tol_list = [0.1, 0.07, 0.04, 0.02, 0.01]
+		for precision in range (min_precision, max_precision+1):
+			tolerance = tol_list[precision]
 			print 'Tolerance = ', tolerance
 			self.group.set_goal_tolerance(tolerance)
-			self.moveArmCartesian(config)
+			self.moveArm(config)
 
 	def moveArm(self, config):
 		print "- Planning Move..."
@@ -120,17 +162,17 @@ class position_finder():
 		self.group.set_pose_target(pose_goal)
 
 		plan = self.group.plan()
-		rospy.sleep(0.5)
+		rospy.sleep(1)
 
 		display_trajectory = DisplayTrajectory()
 		display_trajectory.trajectory_start = self.robot.get_current_state()
 		display_trajectory.trajectory.append(plan)
 		self.display_trajectory_publisher.publish(display_trajectory);
-		rospy.sleep(1)
+		rospy.sleep(0.5)
 
 		print "- Executing..."
 		self.group.go(wait=True)
-		rospy.sleep(2)
+		rospy.sleep(1)
 
 	def moveArmCartesian(self,config):
 		waypoints = []
@@ -148,17 +190,17 @@ class position_finder():
 		# The jump_threshold specifies the maximum distance in configuration space between consecutive points in the resulting path. 
 		# The return value is a tuple: a fraction of how much of the path was followed, the actual RobotTrajectory. 
 		(plan, fraction) = self.group.compute_cartesian_path(waypoints, 0.01, 0.0)
-		rospy.sleep(0.5)
+		rospy.sleep(5)
 
 		display_trajectory = DisplayTrajectory()
 		display_trajectory.trajectory_start = self.robot.get_current_state()
 		display_trajectory.trajectory.append(plan)
 		self.display_trajectory_publisher.publish(display_trajectory)
-		rospy.sleep(1.)
+		rospy.sleep(5)
 
 		print "- Executing..."
 		self.group.execute(plan,wait=True)
-		rospy.sleep(2.)
+		rospy.sleep(5)
 
 	def openGripper(self):
 		print "============ Opening Grip"
@@ -197,7 +239,7 @@ class position_finder():
 				if(str.find("cube")>=0):
 					self.cube_pos.append(ms.pose[index].position)
 				if(str.find("bucket")>=0):
-					self.bucket_pos.append(ms.pose[index].position)
+					self.bucket_pos = ms.pose[index].position
 				index+=1
 
 def main(args):
