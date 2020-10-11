@@ -24,6 +24,7 @@ class position_finder():
 		self.bucket_pos = None
 		self.number_of_cubes = None
 		self.i = None # cube counter
+		self.reachable = None # variable to check if each cube is reachable
 
 	def initializeStuff(self): # method to do the environment setup
 		## First initialize moveit_commander and rospy.
@@ -44,54 +45,62 @@ class position_finder():
 		self.pose_subscriber = rospy.Subscriber("/gazebo/model_states", ModelStates, self.callback) # initialize pose subscriber
 		rospy.sleep(1.)
 
+		self.i = 0
+		while self.i < self.number_of_cubes:
+			c.findStuff()
+			self.i+=1
+			if (self.i+1) == self.number_of_cubes:
+				self.i = 0
+
 	def findStuff(self): # method to loop over every cube
 		print "====== Number of cubes: ", self.number_of_cubes
 		print "============ CUBE <- #", self.i
 
 		# check if cube is already inside bucket
 		if self.cube_pos[self.i].z >= 0.75 and self.cube_pos[self.i].z <= 0.77:
-
-			self.openGripper()
-
 			# start at a neutral configuration
 			print "### Neutral ###"
 			start_config = copy.deepcopy(self.bucket_pos) # for some weird reason, bucket_config doesn't take the value, but BECOMES self.bucket_pos
-			start_config.x = 0.578
-			start_config.y = -0.015
-			start_config.z = 1.295
+			start_config.x = 0.21 # 0.578
+			start_config.y = 0.23 # -0.015
+			start_config.z = 1.26 # 1.295
 			min_precision = 1 # precision ranges from 0~4 : 4 is the highest
 			max_precision = 1
 			self.SlowlyReach(start_config, min_precision, max_precision)
 
-			print "============ Generating plan 1, aka: \nGrab it by the cuby."
+			print "============ Generating plan 1, aka: \nGrab it by the cuby"
 			print "Next cube position:\n", self.cube_pos[self.i]
 			cube_config = copy.deepcopy(self.cube_pos[self.i])
 
-			# make a test plan to see if the cube is reachable
-			#reachable = self.checkReachability(cube_config)
+			# go above the cube
+			print "### Above Cube ###"
+			cube_z = copy.deepcopy(cube_config.z)
+			cube_config.z = cube_z + 0.5
+			min_precision = 2
+			max_precision = 2
+			self.SlowlyReach(cube_config, min_precision, max_precision)
 
-			if True:
-				# go above the cube
-				print "### Above Cube ###"
-				cube_z = copy.deepcopy(cube_config.z)
-				cube_config.z = cube_z + 0.5
-				min_precision = 2
-				max_precision = 2
+			# open the gripper
+			self.openGripper()
+
+			# go down and up
+			critical = 0.165
+			index = 1
+			for dz in [0.4, 0.2, 0.19, 0.18, critical, 0.181, 0.21, 0.41, 0.51]:
+				print "$$ Move: ", index, "/9", "(4 + 1 + 4)"
+				min_precision = 4
+				max_precision = 4
+				cube_config.z = cube_z + dz
 				self.SlowlyReach(cube_config, min_precision, max_precision)
+				index +=1
+				if (dz == 0.18) and (not self.reachable):
+					print "** Unreachable Cube **"
+					break
+				if (dz == critical):
+					self.closeGripper()
 
-				# open the gripper
-				self.openGripper()
-
-				# go down and up
-				for dz in [0.4, 0.2, 0.18, 0.15, 0.18, 0.2, 0.4, 0.5]:
-					print "# Move a little #"
-					min_precision = 4
-					max_precision = 4
-					cube_config.z = cube_z + dz
-					self.SlowlyReach(cube_config, min_precision, max_precision)
-					if dz == 0.15:
-						self.closeGripper()
-
+			# if the cube was reachable, return it to the bucket
+			if self.reachable:
 				print "============ Generating plan 2: \nReturn to the bucket"
 				print "Bucket position:\n", self.bucket_pos
 
@@ -105,33 +114,12 @@ class position_finder():
 
 				# open the gripper to drop the cube
 				self.openGripper()
-			else:
-				print "$$$ Cube", self.i, "is unreachable $$$"
+		
+		#print "$$$ Cube", self.i, "is unreachable $$$"
 		elif self.cube_pos[self.i].z >= 0.81:
 			print "$$$ Cube", self.i, "is already inside the Bucket $$$"
 		elif self.cube_pos[self.i].z <= 0.75:
 			print "$$$ Cube", self.i, "has fallen $$$"
-
-	def checkReachability(self, config):
-		self.group.set_goal_tolerance(0.01)
-		waypoints = []
-		pose_goal = self.group.get_current_pose().pose
-		waypoints.append(pose_goal) # current pose
-		pose_goal.orientation = geometry_msgs.msg.Quaternion(*tf_conversions.transformations.quaternion_from_euler(0., -math.pi/2, 0.))
-		pose_goal.position.x = config.x
-		pose_goal.position.y = config.y
-		pose_goal.position.z = config.z
-		waypoints.append(copy.deepcopy(pose_goal)) # goal pose
-
-		print "- Checking if cube is reachable..."
-		(plan, fraction) = self.group.compute_cartesian_path(waypoints, 0.01, 0.0)
-		rospy.sleep(2)
-		print "%% success of plan:", fraction
-		if fraction>0:
-			print "Reachable cube. Proceeding..."
-			return True
-		else:
-			return False
 
 	def SlowlyReach(self, config, min_precision, max_precision):
 		tol_list = [0.1, 0.07, 0.04, 0.02, 0.01]
@@ -145,7 +133,6 @@ class position_finder():
 		step = 0.01
 		attempts = 1
 
-		self.group.set_goal_tolerance(0.01)
 		waypoints = []
 		pose_goal = self.group.get_current_pose().pose
 		waypoints.append(pose_goal) # current pose
@@ -161,51 +148,36 @@ class position_finder():
 		# Configurations are computed for every eef_step meters; 
 		# The jump_threshold specifies the maximum distance in configuration space between consecutive points in the resulting path. 
 		# The return value is a tuple: a fraction of how much of the path was followed, the actual RobotTrajectory. 
+		# avoid_collision = True
 		(plan, fraction) = self.group.compute_cartesian_path(waypoints, step, 0.0)
 		rospy.sleep(0.5)
-		print "%% success of plan:", fraction
-		while (fraction<0.8) and (attempts<=5): # force a somewhat successful plan by adding more intermediary points
+		print "%% success:", fraction
+		while (fraction<0.8) and (attempts<=4): # force a somewhat successful plan by adding more intermediary points
 			attempts+=1
 			step = step/2
-			print "%% success of plan:", fraction
+			print "%% success:", fraction
 			(plan, fraction) = self.group.compute_cartesian_path(waypoints, step, 0.0)
 			rospy.sleep(0.5)
 
-		display_trajectory = DisplayTrajectory()
-		display_trajectory.trajectory_start = self.robot.get_current_state()
-		display_trajectory.trajectory.append(plan)
-		self.display_trajectory_publisher.publish(display_trajectory)
-		rospy.sleep(1)
+		# check if the move was successful
+		if fraction > 0.8:
+			print "Success.-"
+			display_trajectory = DisplayTrajectory()
+			display_trajectory.trajectory_start = self.robot.get_current_state()
+			display_trajectory.trajectory.append(plan)
+			self.display_trajectory_publisher.publish(display_trajectory)
+			rospy.sleep(1)
 
-		print "- Executing..."
-		self.group.execute(plan,wait=True)
-		rospy.sleep(1)
-
-	def moveArm(self, config):
-		print "- Planning Move..."
-		pose_goal = self.group.get_current_pose().pose
-
-		pose_goal.orientation = geometry_msgs.msg.Quaternion(*tf_conversions.transformations.quaternion_from_euler(0., -math.pi/2, 0.))
-		pose_goal.position.x = config.x
-		pose_goal.position.y = config.y
-		pose_goal.position.z = config.z
-		self.group.set_pose_target(pose_goal)
-
-		plan = self.group.plan()
-		rospy.sleep(1)
-
-		display_trajectory = DisplayTrajectory()
-		display_trajectory.trajectory_start = self.robot.get_current_state()
-		display_trajectory.trajectory.append(plan)
-		self.display_trajectory_publisher.publish(display_trajectory);
-		rospy.sleep(0.5)
-
-		print "- Executing..."
-		self.group.go(wait=True)
-		rospy.sleep(1)
+			print "- Executing..."
+			self.group.execute(plan,wait=True)
+			rospy.sleep(1)
+			self.reachable = True
+		else:
+			print "Fail.-"
+			self.reachable = False
 
 	def openGripper(self):
-		print "============ Opening Grip"
+		print "~~~~~ Opening Grip"
 		currentJointState = JointState()
 
 		currentJointState = rospy.wait_for_message("/joint_states",JointState)
@@ -219,7 +191,7 @@ class position_finder():
 			rate.sleep()
 
 	def closeGripper(self):
-		print "============ Closing Grip"
+		print "~~~~~ Closing Grip"
 		currentJointState = JointState()
 
 		currentJointState = rospy.wait_for_message("/joint_states",JointState)
@@ -251,8 +223,6 @@ def main(args):
 		moveit_commander.roscpp_initialize(sys.argv)
 		c = position_finder()
 		c.initializeStuff()
-		for c.i in range(c.number_of_cubes):
-			c.findStuff()
 		moveit_commander.roscpp_shutdown()
 
 		R = rospy.Rate(10)
