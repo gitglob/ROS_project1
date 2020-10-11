@@ -22,11 +22,10 @@ class position_finder():
 		self.number_of_elements = 0
 		self.cube_pos = []
 		self.bucket_pos = None
+		self.number_of_cubes = None
+		self.i = None # cube counter
 
-		# initialize robot, scene, group, Subscriber, Publishers
-		self.initialize_stuff()
-
-	def initialize_stuff(self): # method to do the environment setup
+	def initializeStuff(self): # method to do the environment setup
 		## First initialize moveit_commander and rospy.
 		print "============ Starting setup"
 		self.robot = moveit_commander.RobotCommander()
@@ -35,11 +34,7 @@ class position_finder():
 
 		## Let's setup the planner
 		#self.group.set_planning_time(1)
-		#self.group.set_goal_joint_tolerance(0.01)
-		#self.group.set_goal_orientation_tolerance(0.01)
-		#self.group.set_goal_position_tolerance(0.1)
-		#self.group.set_goal_tolerance(0.1)
-		self.group.set_num_planning_attempts(10)
+		self.group.set_num_planning_attempts(100)
 
 		# ModelStates: [ground_plane, jaco_on_table, cube0, cube1, ... , bucket] [String, Pose, Twist]
 		# DisplayTrajecory: too complex...
@@ -49,99 +44,94 @@ class position_finder():
 		self.pose_subscriber = rospy.Subscriber("/gazebo/model_states", ModelStates, self.callback) # initialize pose subscriber
 		rospy.sleep(1.)
 
+	def findStuff(self): # method to loop over every cube
 		print "====== Number of cubes: ", self.number_of_cubes
-		for i in range(self.number_of_cubes):
-			self.findStuff(i)
+		print "============ CUBE <- #", self.i
 
-	def findStuff(self, i): # method to loop over every cube
-		print "============ CUBE <- #", i
+		# check if cube is already inside bucket
+		if self.cube_pos[self.i].z >= 0.75 and self.cube_pos[self.i].z <= 0.77:
 
-		# start at a neutral configuration
-		print "### Neutral ###"
-		start_config = copy.deepcopy(self.bucket_pos) # for some weird reason, bucket_config doesn't take the value, but BECOMES self.bucket_pos
-		start_config.x = 0.578
-		start_config.y = -0.015
-		start_config.z = 1.295
-		min_precision = 1 # precision ranges from 0~4 : 4 is the highest
-		max_precision = 1
-		self.SlowlyReach(start_config, min_precision, max_precision)
+			self.openGripper()
 
-		print "============ Generating plan 1, aka: \nGrab it by the cuby."
-		print "Next cube position:\n", self.cube_pos[i]
+			# start at a neutral configuration
+			print "### Neutral ###"
+			start_config = copy.deepcopy(self.bucket_pos) # for some weird reason, bucket_config doesn't take the value, but BECOMES self.bucket_pos
+			start_config.x = 0.578
+			start_config.y = -0.015
+			start_config.z = 1.295
+			min_precision = 1 # precision ranges from 0~4 : 4 is the highest
+			max_precision = 1
+			self.SlowlyReach(start_config, min_precision, max_precision)
 
-		# go above the cube
-		print "### Above Cube ###"
-		cube_config = copy.deepcopy(self.cube_pos[i])
-		cube_z = cube_config.z
-		cube_config.z = cube_z + 0.5
-		min_precision = 2
-		max_precision = 3
-		self.SlowlyReach(cube_config, min_precision, max_precision)
+			print "============ Generating plan 1, aka: \nGrab it by the cuby."
+			print "Next cube position:\n", self.cube_pos[self.i]
+			cube_config = copy.deepcopy(self.cube_pos[self.i])
 
-		# open the gripper
-		self.openGripper()
+			# make a test plan to see if the cube is reachable
+			#reachable = self.checkReachability(cube_config)
 
-		# go a little lower
-		print "# A little lower #"
-		cube_config.z = cube_z + 0.4
-		min_precision = 3
-		max_precision = 4
-		self.SlowlyReach(cube_config, min_precision, max_precision)
+			if True:
+				# go above the cube
+				print "### Above Cube ###"
+				cube_z = copy.deepcopy(cube_config.z)
+				cube_config.z = cube_z + 0.5
+				min_precision = 2
+				max_precision = 2
+				self.SlowlyReach(cube_config, min_precision, max_precision)
 
-		# even lower
-		print "# Even lower #"
-		cube_config.z = cube_z + 0.205
-		min_precision = 4
-		max_precision = 4
-		self.SlowlyReach(cube_config, min_precision, max_precision)
+				# open the gripper
+				self.openGripper()
 
-		# go down and reach the cube
-		print "### Reach Cube ###"
-		cube_config.z = cube_z + 0.165 # cubes size are 0.05
-		min_precision = 4
-		max_precision = 4
-		self.SlowlyReach(cube_config, min_precision, max_precision)
+				# go down and up
+				for dz in [0.4, 0.2, 0.18, 0.15, 0.18, 0.2, 0.4, 0.5]:
+					print "# Move a little #"
+					min_precision = 4
+					max_precision = 4
+					cube_config.z = cube_z + dz
+					self.SlowlyReach(cube_config, min_precision, max_precision)
+					if dz == 0.15:
+						self.closeGripper()
 
-		# close grip to grab cube
-		self.closeGripper()
+				print "============ Generating plan 2: \nReturn to the bucket"
+				print "Bucket position:\n", self.bucket_pos
 
-		# go above the cube
-		print "### Pick Up Cube ###"
+				# go above the bucket
+				print "### Above bucket ###"
+				bucket_config = copy.deepcopy(self.bucket_pos)
+				bucket_config.z = bucket_config.z + 0.5
+				min_precision = 4
+				max_precision = 4
+				self.SlowlyReach(bucket_config, min_precision, max_precision)
 
-		# go a little higher
-		print "# A little higher #"
-		cube_config.z = cube_z + 0.165
-		min_precision = 4
-		max_precision = 4
-		self.SlowlyReach(cube_config, min_precision, max_precision)
+				# open the gripper to drop the cube
+				self.openGripper()
+			else:
+				print "$$$ Cube", self.i, "is unreachable $$$"
+		elif self.cube_pos[self.i].z >= 0.81:
+			print "$$$ Cube", self.i, "is already inside the Bucket $$$"
+		elif self.cube_pos[self.i].z <= 0.75:
+			print "$$$ Cube", self.i, "has fallen $$$"
 
-		# go a little higher
-		print "# Even higher #"
-		cube_config.z = cube_z + 0.205
-		min_precision = 4
-		max_precision = 4
-		self.SlowlyReach(cube_config, min_precision, max_precision)
+	def checkReachability(self, config):
+		self.group.set_goal_tolerance(0.01)
+		waypoints = []
+		pose_goal = self.group.get_current_pose().pose
+		waypoints.append(pose_goal) # current pose
+		pose_goal.orientation = geometry_msgs.msg.Quaternion(*tf_conversions.transformations.quaternion_from_euler(0., -math.pi/2, 0.))
+		pose_goal.position.x = config.x
+		pose_goal.position.y = config.y
+		pose_goal.position.z = config.z
+		waypoints.append(copy.deepcopy(pose_goal)) # goal pose
 
-		# go above the cube
-		print "### Above with Cube ###"
-		cube_config.z = cube_z + 0.5
-		min_precision = 4
-		max_precision = 4
-		self.SlowlyReach(cube_config, min_precision, max_precision)
-
-		print "============ Generating plan 2: \nReturn to the bucket"
-		print "Bucket position:\n", self.bucket_pos
-
-		# go above the bucket
-		print "### Above bucket ###"
-		bucket_config = copy.deepcopy(self.bucket_pos)
-		bucket_config.z = bucket_config.z + 0.5
-		min_precision = 4
-		max_precision = 4
-		self.SlowlyReach(bucket_config, min_precision, max_precision)
-
-		# open the gripper to drop the cube
-		self.openGripper()
+		print "- Checking if cube is reachable..."
+		(plan, fraction) = self.group.compute_cartesian_path(waypoints, 0.01, 0.0)
+		rospy.sleep(2)
+		print "%% success of plan:", fraction
+		if fraction>0:
+			print "Reachable cube. Proceeding..."
+			return True
+		else:
+			return False
 
 	def SlowlyReach(self, config, min_precision, max_precision):
 		tol_list = [0.1, 0.07, 0.04, 0.02, 0.01]
@@ -149,7 +139,47 @@ class position_finder():
 			tolerance = tol_list[precision]
 			print 'Tolerance = ', tolerance
 			self.group.set_goal_tolerance(tolerance)
-			self.moveArm(config)
+			self.moveArmCartesian(config)
+
+	def moveArmCartesian(self,config):
+		step = 0.01
+		attempts = 1
+
+		self.group.set_goal_tolerance(0.01)
+		waypoints = []
+		pose_goal = self.group.get_current_pose().pose
+		waypoints.append(pose_goal) # current pose
+		pose_goal.orientation = geometry_msgs.msg.Quaternion(*tf_conversions.transformations.quaternion_from_euler(0., -math.pi/2, 0.))
+		pose_goal.position.x = config.x
+		pose_goal.position.y = config.y
+		pose_goal.position.z = config.z
+		waypoints.append(copy.deepcopy(pose_goal)) # goal pose
+
+		print "- Planning Move..."
+		# create cartesian plan based on current and goal pose
+		# compute_cartesian_path: Compute a sequence of waypoints that make the end-effector move in straight line segments that follow the poses specified as waypoints. 
+		# Configurations are computed for every eef_step meters; 
+		# The jump_threshold specifies the maximum distance in configuration space between consecutive points in the resulting path. 
+		# The return value is a tuple: a fraction of how much of the path was followed, the actual RobotTrajectory. 
+		(plan, fraction) = self.group.compute_cartesian_path(waypoints, step, 0.0)
+		rospy.sleep(0.5)
+		print "%% success of plan:", fraction
+		while (fraction<0.8) and (attempts<=5): # force a somewhat successful plan by adding more intermediary points
+			attempts+=1
+			step = step/2
+			print "%% success of plan:", fraction
+			(plan, fraction) = self.group.compute_cartesian_path(waypoints, step, 0.0)
+			rospy.sleep(0.5)
+
+		display_trajectory = DisplayTrajectory()
+		display_trajectory.trajectory_start = self.robot.get_current_state()
+		display_trajectory.trajectory.append(plan)
+		self.display_trajectory_publisher.publish(display_trajectory)
+		rospy.sleep(1)
+
+		print "- Executing..."
+		self.group.execute(plan,wait=True)
+		rospy.sleep(1)
 
 	def moveArm(self, config):
 		print "- Planning Move..."
@@ -173,34 +203,6 @@ class position_finder():
 		print "- Executing..."
 		self.group.go(wait=True)
 		rospy.sleep(1)
-
-	def moveArmCartesian(self,config):
-		waypoints = []
-		pose_goal = self.group.get_current_pose().pose
-		waypoints.append(pose_goal) # current pose
-		pose_goal.position.x = config.x
-		pose_goal.position.y = config.y
-		pose_goal.position.z = config.z
-		waypoints.append(copy.deepcopy(pose_goal)) # goal pose
-
-		print "- Planning Move..."
-		# create cartesian plan based on current and goal pose
-		# compute_cartesian_path: Compute a sequence of waypoints that make the end-effector move in straight line segments that follow the poses specified as waypoints. 
-		# Configurations are computed for every eef_step meters; 
-		# The jump_threshold specifies the maximum distance in configuration space between consecutive points in the resulting path. 
-		# The return value is a tuple: a fraction of how much of the path was followed, the actual RobotTrajectory. 
-		(plan, fraction) = self.group.compute_cartesian_path(waypoints, 0.01, 0.0)
-		rospy.sleep(5)
-
-		display_trajectory = DisplayTrajectory()
-		display_trajectory.trajectory_start = self.robot.get_current_state()
-		display_trajectory.trajectory.append(plan)
-		self.display_trajectory_publisher.publish(display_trajectory)
-		rospy.sleep(5)
-
-		print "- Executing..."
-		self.group.execute(plan,wait=True)
-		rospy.sleep(5)
 
 	def openGripper(self):
 		print "============ Opening Grip"
@@ -248,6 +250,9 @@ def main(args):
 	try:
 		moveit_commander.roscpp_initialize(sys.argv)
 		c = position_finder()
+		c.initializeStuff()
+		for c.i in range(c.number_of_cubes):
+			c.findStuff()
 		moveit_commander.roscpp_shutdown()
 
 		R = rospy.Rate(10)
