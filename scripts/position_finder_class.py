@@ -17,10 +17,8 @@ class position_finder():
 
 	def __init__(self):
 		# "global" parameters
-		self.cube_index = []
 		self.bucket_index = None
-		self.number_of_elements = 0
-		self.cube_pos = []
+		self.cube_pos = [None]*6
 		self.bucket_pos = None
 		self.number_of_cubes = None
 		self.i = None # cube counter
@@ -47,9 +45,9 @@ class position_finder():
 
 		self.i = 0
 		while self.i < self.number_of_cubes:
-			c.findStuff()
+			self.findStuff()
 			self.i+=1
-			if (self.i+1) == self.number_of_cubes:
+			if ((self.i) == self.number_of_cubes):
 				self.i = 0
 
 	def findStuff(self): # method to loop over every cube
@@ -99,7 +97,7 @@ class position_finder():
 				if (dz == critical):
 					self.closeGripper()
 
-			# if the cube was reachable, return it to the bucket
+			# if the cube was reachable, return it to the bucket and do i middle stop to the neutral configuration
 			if self.reachable:
 				print "============ Generating plan 2: \nReturn to the bucket"
 				print "Bucket position:\n", self.bucket_pos
@@ -176,6 +174,29 @@ class position_finder():
 			print "Fail.-"
 			self.reachable = False
 
+	def moveArm(self, config):
+		print "- Planning Move..."
+		pose_goal = self.group.get_current_pose().pose
+
+		pose_goal.orientation = geometry_msgs.msg.Quaternion(*tf_conversions.transformations.quaternion_from_euler(0., -math.pi/2, 0.))
+		pose_goal.position.x = config.x
+		pose_goal.position.y = config.y
+		pose_goal.position.z = config.z
+		self.group.set_pose_target(pose_goal)
+
+		plan = self.group.plan()
+		rospy.sleep(0.5)
+
+		display_trajectory = DisplayTrajectory()
+		display_trajectory.trajectory_start = self.robot.get_current_state()
+		display_trajectory.trajectory.append(plan)
+		self.display_trajectory_publisher.publish(display_trajectory);
+		rospy.sleep(1)
+
+		print "- Executing..."
+		self.group.go(wait=True)
+		rospy.sleep(1)
+
 	def openGripper(self):
 		print "~~~~~ Opening Grip"
 		currentJointState = JointState()
@@ -184,7 +205,7 @@ class position_finder():
 		currentJointState.header.stamp = rospy.get_rostime()
 		tmp = 0.005
 
-		currentJointState.position = tuple(list(currentJointState.position[:6]) + [tmp] + [tmp]+ [tmp])
+		currentJointState.position = tuple(list(currentJointState.position[:6]) + [tmp] + [tmp]+ [tmp]) # change the last 3 joints to 0.005
 		rate = rospy.Rate(10) # 10hz
 		for i in range(3):
 			self.joint_publisher.publish(currentJointState)
@@ -196,9 +217,9 @@ class position_finder():
 
 		currentJointState = rospy.wait_for_message("/joint_states",JointState)
 		currentJointState.header.stamp = rospy.get_rostime()
-		tmp = 0.7
+		tmp = 0.85
 
-		currentJointState.position = tuple(list(currentJointState.position[:6]) + [tmp] + [tmp]+ [tmp])
+		currentJointState.position = tuple(list(currentJointState.position[:6]) + [tmp] + [tmp]+ [tmp]) # change the last 3 joints to 0.7
 		rate = rospy.Rate(10) # 10hz
 		for i in range(3):
 			self.joint_publisher.publish(currentJointState)
@@ -206,15 +227,15 @@ class position_finder():
 
 	def callback(self, ms): # callback function for 'pose' messages
 		self.number_of_cubes = sum("cube" in s for s in ms.name)
-		if len(ms.name) > self.number_of_elements: # check if new elements have been added and if so, find their position again
-			index = 0
-			for str in ms.name: # Now drop all the cubes to the bucket
-				self.number_of_elements+=1 # counter for all the elements in the virtual environment
-				if(str.find("cube")>=0):
-					self.cube_pos.append(ms.pose[index].position)
-				if(str.find("bucket")>=0):
-					self.bucket_pos = ms.pose[index].position
-				index+=1
+		index = 0
+		cube_index = 0
+		for str in ms.name: # Now drop all the cubes to the bucket
+			if(str.find("cube")>=0):
+				self.cube_pos[cube_index] = ms.pose[index].position
+				cube_index+=1
+			if(str.find("bucket")>=0):
+				self.bucket_pos = ms.pose[index].position
+			index+=1
 
 def main(args):
 	'''Initializes and cleanup ros node'''
