@@ -21,6 +21,7 @@ class position_finder():
 		self.cube_pos = [None]*6
 		self.bucket_pos = None
 		self.number_of_cubes = None
+		self.cubes_in_bucket = 0
 		self.i = None # cube counter
 		self.reachable = None # variable to check if each cube is reachable
 
@@ -41,14 +42,17 @@ class position_finder():
 		self.display_trajectory_publisher = rospy.Publisher('/move_group/display_planned_path', DisplayTrajectory, queue_size=1) # initialize trajectory publisher
 		self.joint_publisher = rospy.Publisher("/jaco/joint_control", JointState, queue_size=1) # initialize joint state publisher for gripper
 		self.pose_subscriber = rospy.Subscriber("/gazebo/model_states", ModelStates, self.callback) # initialize pose subscriber
-		rospy.sleep(1.)
+
+		while self.bucket_pos == None:
+			rospy.sleep(0.01)
 
 		self.i = 0
-		while self.i < self.number_of_cubes:
+		while (self.i < self.number_of_cubes and self.number_of_cubes > self.cubes_in_bucket):
 			self.findStuff()
 			self.i+=1
 			if ((self.i) == self.number_of_cubes):
 				self.i = 0
+		print "Done. All the cubes in the bucket."
 
 	def findStuff(self): # method to loop over every cube
 		print "====== Number of cubes: ", self.number_of_cubes
@@ -57,45 +61,52 @@ class position_finder():
 		# check if cube is already inside bucket
 		if self.cube_pos[self.i].z >= 0.75 and self.cube_pos[self.i].z <= 0.77:
 			# start at a neutral configuration
-			print "### Neutral ###"
+			print "### Safe position ###"
 			start_config = copy.deepcopy(self.bucket_pos) # for some weird reason, bucket_config doesn't take the value, but BECOMES self.bucket_pos
 			start_config.x = 0.21 # 0.578
 			start_config.y = 0.23 # -0.015
 			start_config.z = 1.26 # 1.295
-			min_precision = 1 # precision ranges from 0~4 : 4 is the highest
-			max_precision = 1
+			min_precision = 1 # precision ranges from 0~7 : 7 is the highest
+			max_precision = 3
 			self.SlowlyReach(start_config, min_precision, max_precision)
 
-			print "============ Generating plan 1, aka: \nGrab it by the cuby"
+			print "============ Generating plan 1: \nGrab the cube"
 			print "Next cube position:\n", self.cube_pos[self.i]
 			cube_config = copy.deepcopy(self.cube_pos[self.i])
 
 			# go above the cube
-			print "### Above Cube ###"
+			print "### Above cube position ###"
 			cube_z = copy.deepcopy(cube_config.z)
 			cube_config.z = cube_z + 0.5
-			min_precision = 2
-			max_precision = 2
+			min_precision = 3
+			max_precision = 3
 			self.SlowlyReach(cube_config, min_precision, max_precision)
 
 			# open the gripper
-			self.openGripper()
+			self.gripperState(0.005)
+
+			cube_config.z = cube_z + 0.3
+			min_precision = 2
+			max_precision = 5
+			self.SlowlyReach(cube_config, min_precision, max_precision)
 
 			# go down and up
 			critical = 0.165
 			index = 1
-			for dz in [0.4, 0.2, 0.19, 0.18, critical, 0.181, 0.21, 0.41, 0.51]:
+			for dz in [0.3, 0.2, 0.19, 0.18, critical, 0.18, 0.19, 0.2, 0.31]:
 				print "$$ Move: ", index, "/9", "(4 + 1 + 4)"
-				min_precision = 4
-				max_precision = 4
+				min_precision = 5
+				max_precision = 7
 				cube_config.z = cube_z + dz
-				self.SlowlyReach(cube_config, min_precision, max_precision)
+				self.SlowlyReach(cube_config, min_precision, max_precision, True)
 				index +=1
 				if (dz == 0.18) and (not self.reachable):
 					print "** Unreachable Cube **"
 					break
+				if (dz == 0.3):
+					self.gripperState(0.1)
 				if (dz == critical):
-					self.closeGripper()
+					self.gripperState(0.85)
 
 			# if the cube was reachable, return it to the bucket and do i middle stop to the neutral configuration
 			if self.reachable:
@@ -107,25 +118,29 @@ class position_finder():
 				bucket_config = copy.deepcopy(self.bucket_pos)
 				bucket_config.z = bucket_config.z + 0.5
 				min_precision = 4
-				max_precision = 4
+				max_precision = 7
 				self.SlowlyReach(bucket_config, min_precision, max_precision)
 
 				# open the gripper to drop the cube
-				self.openGripper()
+				self.gripperState(0.005)
 		
 		#print "$$$ Cube", self.i, "is unreachable $$$"
 		elif self.cube_pos[self.i].z >= 0.81:
 			print "$$$ Cube", self.i, "is already inside the Bucket $$$"
+			self.cubes_in_bucket += 1
 		elif self.cube_pos[self.i].z <= 0.75:
 			print "$$$ Cube", self.i, "has fallen $$$"
 
-	def SlowlyReach(self, config, min_precision, max_precision):
-		tol_list = [0.1, 0.07, 0.04, 0.02, 0.01]
+	def SlowlyReach(self, config, min_precision, max_precision, cartesian = False):
+		tol_list = [1, 0.5, 0.2, 0.07, 0.05, 0.04, 0.02, 0.01]
 		for precision in range (min_precision, max_precision+1):
 			tolerance = tol_list[precision]
 			print 'Tolerance = ', tolerance
 			self.group.set_goal_tolerance(tolerance)
-			self.moveArmCartesian(config)
+			if cartesian:
+				self.moveArmCartesian(config)
+			else:
+				self.moveArm(config)
 
 	def moveArmCartesian(self,config):
 		step = 0.01
@@ -167,7 +182,7 @@ class position_finder():
 			rospy.sleep(1)
 
 			print "- Executing..."
-			self.group.execute(plan,wait=True)
+			self.group.execute(plan, wait=True)
 			rospy.sleep(1)
 			self.reachable = True
 		else:
@@ -197,29 +212,17 @@ class position_finder():
 		self.group.go(wait=True)
 		rospy.sleep(1)
 
-	def openGripper(self):
-		print "~~~~~ Opening Grip"
+	def gripperState(self,tmp):
+		if tmp < 0.09:
+			print "Opening the gripper"
+		else:
+			print "Closing the gripper"
 		currentJointState = JointState()
 
 		currentJointState = rospy.wait_for_message("/joint_states",JointState)
 		currentJointState.header.stamp = rospy.get_rostime()
-		tmp = 0.005
 
 		currentJointState.position = tuple(list(currentJointState.position[:6]) + [tmp] + [tmp]+ [tmp]) # change the last 3 joints to 0.005
-		rate = rospy.Rate(10) # 10hz
-		for i in range(3):
-			self.joint_publisher.publish(currentJointState)
-			rate.sleep()
-
-	def closeGripper(self):
-		print "~~~~~ Closing Grip"
-		currentJointState = JointState()
-
-		currentJointState = rospy.wait_for_message("/joint_states",JointState)
-		currentJointState.header.stamp = rospy.get_rostime()
-		tmp = 0.85
-
-		currentJointState.position = tuple(list(currentJointState.position[:6]) + [tmp] + [tmp]+ [tmp]) # change the last 3 joints to 0.7
 		rate = rospy.Rate(10) # 10hz
 		for i in range(3):
 			self.joint_publisher.publish(currentJointState)
